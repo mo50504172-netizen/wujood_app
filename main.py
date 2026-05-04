@@ -2,117 +2,75 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from PIL import Image
-from fpdf import FPDF
-import os
 
-# 1. الإعدادات العامة للبرنامج
-st.set_page_config(layout="wide", page_title="Wujood Professional Sales Portal")
-
-# رابط البيانات من جوجل شيت
+# رابط الشيت النهائي
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1905007491&single=true&output=csv"
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=5) # تحديث البيانات كل 5 ثواني
 def load_data():
-    data = pd.read_csv(CSV_URL)
-    data.columns = data.columns.str.strip()
-    return data
+    return pd.read_csv(CSV_URL)
 
-# 2. دالة بناء الـ PDF الاحترافية (تثبيت الأبعاد والدائرة)
-def create_pdf(unit_row, consultant_name):
-    # إنشاء ملف PDF بالعرض (Landscape)
-    pdf = FPDF(orientation='L', unit='mm', format='A4')
-    
-    def add_standard_page(img_path, is_master_plan=False):
-        if os.path.exists(img_path):
-            pdf.add_page()
-            # جعل الصورة تملأ عرض الصفحة بالكامل (297 مم)
-            pdf.image(img_path, x=0, y=0, w=297)
-            
-            if is_master_plan:
-                # رسم دائرة تعليم الوحدة بدقة
-                pdf.set_draw_color(255, 0, 0)
-                pdf.set_line_width(1.5)
-                # حساب الإحداثيات بناءً على عرض الصورة في الـ PDF
-                ux = (unit_row['X'] / 1000) * 297
-                uy = (unit_row['Y'] / 1000) * (297 * (Image.open(img_path).height / Image.open(img_path).width))
-                pdf.ellipse(ux - 4, uy - 4, 8, 8)
-
-    # إضافة البروشور (الصور من 1 لـ 4)
-    for i in range(1, 5):
-        add_standard_page(f"static_images/{i}.jpeg")
-
-    # إضافة الماستر بلان (مع الدائرة المظبوطة)
-    add_standard_page("Master Plan.jpeg", is_master_plan=True)
-
-    # إضافة تقسيمة الوحدة (البحث الذكي بالمساحة والحديقة)
-    unit_area_str = str(unit_row['Area']).lower()
-    area_key = unit_area_str.split('+')[0].strip()
-    layout_folder = "layouts"
-    if os.path.exists(layout_folder):
-        target_layout = None
-        for f in os.listdir(layout_folder):
-            if area_key in f:
-                if "garden" in unit_area_str and "garden" in f.lower():
-                    target_layout = f
-                    break
-                elif "garden" not in unit_area_str and "garden" not in f.lower():
-                    target_layout = f
-                    break
-        if target_layout:
-            add_standard_page(os.path.join(layout_folder, target_layout))
-
-    # إضافة صفحة السيلز المختار من القائمة
-    sales_path = f"last_images/{consultant_name}.jpeg"
-    if os.path.exists(sales_path):
-        add_standard_page(sales_path)
-
-    return bytes(pdf.output(dest='S'))
-
-# 3. واجهة المستخدم (UI)
 try:
+    st.set_page_config(layout="wide", page_title="Tharaa Town Project")
     df_all = load_data()
-    st.sidebar.title("Sales Portal")
-    
-    # اختيار السيلز (سيؤثر فوراً على آخر صفحة في الـ PDF)
-    sales_names = ["Basmala", "Farag", "Gamal", "Jo", "Nady", "os", "Rawda", "Salma"]
-    selected_consultant = st.sidebar.selectbox("Select Consultant:", sales_names)
-    
-    tab1, tab2 = st.tabs(["📍 Interactive Master Plan", "📄 Generate Professional Offer"])
 
-    with tab1:
-        # عرض الماستر بلان بدون محاور أرقام (Clean View)
-        df_av = df_all[df_all['Status'].str.contains('Available', case=False, na=False)].copy()
-        master_img = Image.open("Master Plan.jpeg")
-        fig = px.imshow(master_img)
-        
-        fig.add_scatter(x=df_av['X'], y=df_av['Y'], mode='markers',
-                        marker=dict(size=12, color='red', line=dict(width=1, color='white')),
-                        hovertext=df_av['Unit Code'])
-        
-        # إخفاء الأرقام والمحاور تماماً
-        fig.update_xaxes(visible=False)
-        fig.update_yaxes(visible=False)
-        fig.update_layout(width=1100, height=850, margin=dict(l=0, r=0, b=0, t=0))
-        st.plotly_chart(fig, use_container_width=True)
+    # فلترة الوحدات المتاحة فقط
+    df = df_all[df_all['Status'] == 'Available'].copy()
 
-    with tab2:
-        st.subheader("Create Unit Offer PDF")
-        unit_code_sel = st.selectbox("Choose Unit Code:", sorted(df_all['Unit Code'].unique()))
-        unit_info = df_all[df_all['Unit Code'] == unit_code_sel].iloc[0]
-        
-        if st.button(f"Generate PDF for {unit_code_sel}"):
-            with st.spinner("Aligning high-res images and coordinates..."):
-                try:
-                    pdf_final = create_pdf(unit_info, selected_consultant)
-                    st.download_button(
-                        label="📥 Download Professional PDF",
-                        data=pdf_final,
-                        file_name=f"Offer_{unit_code_sel}.pdf",
-                        mime="application/pdf"
-                    )
-                    st.success(f"PDF matches {selected_consultant} profile and {unit_code_sel} location.")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    # التأكد من أن الإحداثيات أرقام
+    df['X'] = pd.to_numeric(df['X'], errors='coerce')
+    df['Y'] = pd.to_numeric(df['Y'], errors='coerce')
+    df = df.dropna(subset=['X', 'Y'])
+
+    # تجميع الوحدات اللي في نفس المبنى (نفس X و Y)
+    df_grouped = df.groupby(['X', 'Y']).apply(lambda x: x.to_dict('records')).reset_index(name='units')
+
+    hover_labels = []
+    for _, row in df_grouped.iterrows():
+        label = "<b>Units in this Building:</b><br>"
+        for unit in row['units']:
+            # معالجة تنسيق السعر لتجنب خطأ Cannot specify ',' with 's'
+            try:
+                # تنظيف السعر من أي علامات غير رقمية وتحويله لـ float
+                price_val = float(str(unit.get('Price', 0)).replace(',', ''))
+                price_str = f"{price_val:,.0f} EGP"
+            except:
+                price_str = "N/A"
+            
+            unit_code = unit.get('Unit Code', 'N/A')
+            area_val = unit.get('Area', 'N/A')
+            
+            label += f"• {unit_code} | {price_str} | {area_val}m²<br>"
+        hover_labels.append(label)
+
+    # تحميل صورة الماستر بلان
+    img = Image.open("Master Plan.jpeg") 
+    fig = px.imshow(img)
+
+    # إضافة النقط على الخريطة
+    fig.add_scatter(
+        x=df_grouped['X'], 
+        y=df_grouped['Y'],
+        mode='markers',
+        marker=dict(size=18, color='red', symbol='circle', opacity=0.8),
+        hovertext=hover_labels,
+        hoverinfo="text"
+    )
+
+    # إعدادات شكل الخريطة
+    fig.update_layout(
+        dragmode='pan', 
+        width=1200, 
+        height=850, 
+        margin=dict(l=0, r=0, t=40, b=0)
+    )
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+
+    st.title("🎯 Wujood Interactive Masterplan")
+    st.write(f"إجمالي الوحدات المتاحة حالياً: {len(df)}")
+    
+    st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"System Load Error: {e}")
+    st.error(f"حدث خطأ في عرض البيانات: {e}")
