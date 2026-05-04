@@ -5,121 +5,114 @@ from PIL import Image
 from fpdf import FPDF
 import os
 
-# 1. إعدادات الصفحة
-st.set_page_config(layout="wide", page_title="Tharaa Town Project")
+# 1. إعدادات الصفحة الأساسية
+st.set_page_config(layout="wide", page_title="Tharaa Town - Professional Portal")
 
-# 2. رابط البيانات
+# رابط بيانات جوجل شيت
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1905007491&single=true&output=csv"
 
-@st.cache_data(ttl=5) 
+@st.cache_data(ttl=5)
 def load_data():
     data = pd.read_csv(CSV_URL)
     data.columns = data.columns.str.strip()
     return data
 
-# 3. دالة بناء الـ PDF الاحترافية (بأحجام طبيعية)
+# 2. دالة بناء الـ PDF الاحترافية (Full Bleed - بدون هوامش بيضاء)
 def create_pdf(unit_row, consultant_name):
-    # إنشاء PDF بالعرض A4
+    # إنشاء ملف PDF بمقاس A4 عرضي
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     
-    # صفحات البروشور الأساسية (1-4)
-    for i in range(1, 5):
-        img_path = f"static_images/{i}.jpeg"
+    # وظيفة داخلية لإضافة الصور لتملأ الصفحة بالكامل 297x210
+    def add_page_image(img_path, draw_circle=False):
         if os.path.exists(img_path):
             pdf.add_page()
-            # استخدام عرض 297mm (كامل الصفحة) مع ترك الارتفاع يتحدد تلقائياً للحفاظ على الأبعاد
-            pdf.image(img_path, x=0, y=0, w=297) 
+            # 0, 0 هي نقطة البداية، و 297, 210 هي أبعاد الصفحة كاملة لضمان عدم وجود بياض
+            pdf.image(img_path, 0, 0, 297, 210)
+            
+            if draw_circle:
+                # رسم دائرة تعليم مكان الوحدة (أحمر)
+                pdf.set_draw_color(255, 0, 0)
+                pdf.set_line_width(1.2)
+                # تحويل الإحداثيات من نظام الـ imshow (1000) لمقاس الورقة
+                ux = (unit_row['X'] / 1000) * 297
+                uy = (unit_row['Y'] / 1000) * 210
+                pdf.ellipse(ux - 5, uy - 5, 10, 10)
 
-    # صفحة الماستر بلان (بشكل مستطيل طبيعي)
-    if os.path.exists("Master Plan.jpeg"):
-        pdf.add_page()
-        # وضع الصورة في المنتصف بحجمها الطبيعي المستطيل
-        pdf.image("Master Plan.jpeg", x=0, y=0, w=297)
-        
-        # رسم دائرة الوحدة (باللون الأحمر)
-        pdf.set_draw_color(255, 0, 0)
-        pdf.set_line_width(1)
-        # الإحداثيات مربوطة بالـ imshow (1000x1000)
-        ux = (unit_row['X'] / 1000) * 297
-        uy = (unit_row['Y'] / 1000) * 210
-        pdf.ellipse(ux - 4, uy - 4, 8, 8)
+    # أ- إضافة أول 4 صور (البروشور)
+    for i in range(1, 5):
+        add_page_image(f"static_images/{i}.jpeg")
 
-    # صفحة الـ Layout (البحث التلقائي بمساحة الوحدة)
-    # نأخذ الرقم الصحيح للمساحة (مثلاً 145 من 145.5)
-    unit_area = str(unit_row['Area']).split('.')[0] 
+    # ب- إضافة الماستر بلان مع تعليم الوحدة
+    add_page_image("Master Plan.jpeg", draw_circle=True)
+
+    # ج- سحب تقسيمة الوحدة (Layout) تلقائياً بناءً على المساحة
+    # الكود يبحث عن ملف يبدأ بنفس رقم المساحة في فولدر layouts
+    unit_area = str(unit_row['Area']).split('.')[0]
     layout_folder = "layouts"
     if os.path.exists(layout_folder):
-        # البحث عن ملف يبدأ بالمساحة المطلوبة
         match_files = [f for f in os.listdir(layout_folder) if f.startswith(unit_area)]
         if match_files:
-            pdf.add_page()
-            # إضافة بلان الوحدة بحجم مستطيل متناسق
-            pdf.image(os.path.join(layout_folder, match_files[0]), x=10, y=10, w=277)
+            add_page_image(os.path.join(layout_folder, match_files[0]))
 
-    # صفحة الكونسلتنت المختار
-    consultant_img = f"last_images/{consultant_name}.jpeg"
-    if os.path.exists(consultant_img):
-        pdf.add_page()
-        pdf.image(consultant_img, x=0, y=0, w=297)
+    # د- إضافة صفحة الكونسلتنت المختار (آخر صفحة)
+    add_page_image(f"last_images/{consultant_name}.jpeg")
 
     return bytes(pdf.output(dest='S'))
 
+# 3. واجهة البرنامج (Streamlit UI)
 try:
     df_all = load_data()
-    st.sidebar.title("Sales Portal")
+    st.sidebar.title("Sales Management")
+    # اختيار الشخص اللي هيظهر صورته في آخر الـ PDF
     sel_sales = st.sidebar.selectbox("Property Consultant:", ["Basmala", "Farag", "Gamal", "Jo", "Nady", "os", "Rawda", "Salma"])
     
-    tab1, tab2 = st.tabs(["📍 Live Master Plan", "📄 Create PDF Offer"])
+    tab1, tab2 = st.tabs(["📍 Master Plan (Live)", "📄 PDF Offer Builder"])
 
     with tab1:
-        # نظام الـ imshow لضمان دقة مكان النقطة على الشاشة
+        # نظام الـ imshow لضمان دقة إحداثيات الوحدات على الشاشة
         df = df_all[df_all['Status'].str.contains('Available', case=False, na=False)].copy()
         df['X'] = pd.to_numeric(df['X'], errors='coerce')
         df['Y'] = pd.to_numeric(df['Y'], errors='coerce')
         df = df.dropna(subset=['X', 'Y'])
-
+        
         df_grouped = df.groupby(['X', 'Y']).apply(lambda x: x.to_dict('records')).reset_index(name='units')
-
+        
         hover_labels = []
         for _, row in df_grouped.iterrows():
-            label = "<b>Units Available:</b><br>"
-            for unit in row['units']:
-                try:
-                    p_val = float(str(unit.get('Price', 0)).replace(',', ''))
-                    p_str = f"{p_val:,.0f} EGP"
-                except: p_str = "N/A"
-                label += f"• {unit.get('Unit Code')} | {p_str} | {unit.get('Area')}m²<br>"
-            hover_labels.append(label)
-
-        img = Image.open("Master Plan.jpeg") 
-        fig = px.imshow(img)
+            txt = "<b>Available Units:</b><br>"
+            for u in row['units']:
+                txt += f"• {u['Unit Code']} | {u['Area']}m²<br>"
+            hover_labels.append(txt)
+        
+        img_map = Image.open("Master Plan.jpeg")
+        fig = px.imshow(img_map)
         fig.add_scatter(x=df_grouped['X'], y=df_grouped['Y'], mode='markers',
-                        marker=dict(size=18, color='red', symbol='circle', opacity=0.8, line=dict(width=2, color='white')),
+                        marker=dict(size=15, color='red', line=dict(width=1, color='white')),
                         hovertext=hover_labels, hoverinfo="text")
         
-        fig.update_layout(dragmode='pan', width=1200, height=850, margin=dict(l=0, r=0, t=0, b=0), hovermode='closest')
-        fig.update_xaxes(visible=False)
-        fig.update_yaxes(visible=False)
+        fig.update_layout(width=1100, height=800, margin=dict(l=0,r=0,b=0,t=0))
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.subheader("Generate Professional Offer")
-        unit_to_offer = st.selectbox("Select Unit Code:", sorted(df_all['Unit Code'].unique()))
-        unit_data = df_all[df_all['Unit Code'] == unit_to_offer].iloc[0]
+        st.subheader("Generate Unit Offer")
+        # اختيار كود الوحدة لعمل الـ PDF
+        unit_codes = sorted(df_all['Unit Code'].unique())
+        selected_code = st.selectbox("Select Unit Code:", unit_codes)
+        unit_info = df_all[df_all['Unit Code'] == selected_code].iloc[0]
         
-        if st.button(f"Create Offer for {unit_to_offer}"):
-            with st.spinner("Searching for layout and consultant image..."):
+        if st.button(f"Generate High-Res PDF for {selected_code}"):
+            with st.spinner("Aligning layouts and images..."):
                 try:
-                    pdf_bytes = create_pdf(unit_data, sel_sales)
+                    pdf_output = create_pdf(unit_info, sel_sales)
                     st.download_button(
-                        label="📥 Download PDF", 
-                        data=pdf_bytes, 
-                        file_name=f"Offer_{unit_to_offer}.pdf",
+                        label="📥 Download Corrected PDF",
+                        data=pdf_output,
+                        file_name=f"Offer_{selected_code}.pdf",
                         mime="application/pdf"
                     )
-                    st.success("PDF generated with original image ratios!")
+                    st.success("PDF generated perfectly! No white margins, and unit location is marked.")
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error generating PDF: {e}")
 
 except Exception as e:
-    st.error(f"An error occurred: {e}")
+    st.error(f"System Error: {e}")
