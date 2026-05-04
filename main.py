@@ -1,62 +1,57 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from PIL import Image
 from fpdf import FPDF
 import os
 
-# إعدادات الصفحة
-st.set_page_config(layout="wide", page_title="Tharaa Town - Professional PDF")
+# 1. إعدادات الصفحة
+st.set_page_config(layout="wide", page_title="Tharaa Town Project")
 
+# 2. رابط البيانات
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1905007491&single=true&output=csv"
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=5) 
 def load_data():
     data = pd.read_csv(CSV_URL)
     data.columns = data.columns.str.strip()
     return data
 
+# 3. دالة بناء الـ PDF الاحترافية
 def create_pdf(unit_row, consultant_name):
-    # استخدام orientation='L' (عرضي) و format='A4'
+    # إنشاء PDF بالعرض A4
     pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=False)
-
-    # 1. صفحات البروشور (بجودة عالية)
+    
+    # صفحات البروشور الأساسية (1-4)
     for i in range(1, 5):
         img_path = f"static_images/{i}.jpeg"
         if os.path.exists(img_path):
             pdf.add_page()
-            pdf.image(img_path, 0, 0, 297, 210) # ملء الصفحة بالكامل
-
-    # 2. صفحة الـ Master Plan مع إخفاء البيانات وتعليم الوحدة
+            pdf.image(img_path, 0, 0, 297, 210)
+    
+    # صفحة الماستر بلان وتعليم الوحدة (بدون إخفاء بياناتك)
     if os.path.exists("Master Plan.jpeg"):
         pdf.add_page()
         pdf.image("Master Plan.jpeg", 0, 0, 297, 210)
-        
-        # --- إخفاء الاسم والرقم بشكل احترافي ---
-        # رسم مستطيلات بلون الخلفية (تقريباً أخضر غامق/زيتي) لإخفاء النصوص
-        pdf.set_fill_color(34, 54, 44) # درجة تقريبية لخلفية الصورة
-        pdf.rect(100, 105, 70, 10, 'F') # إخفاء "Mohamed Osama"
-        pdf.rect(190, 105, 50, 10, 'F') # إخفاء الرقم
-        
-        # --- تعليم مكان الوحدة ---
         pdf.set_draw_color(255, 0, 0) # أحمر
         pdf.set_line_width(1.5)
-        # تحويل الإحداثيات لتناسب حجم الورقة A4 عرضياً
-        pos_x = (unit_row['X'] / 1000) * 297
-        pos_y = (unit_row['Y'] / 1000) * 210
-        pdf.ellipse(pos_x - 4, pos_y - 4, 8, 8) 
+        # تحويل الإحداثيات بدقة لمقاس A4 (297x210)
+        # بما أن imshow تستخدم بكسلات الصورة، سنفترض أن الإحداثيات متناسبة مع 1000
+        ux = (unit_row['X'] / 1000) * 297
+        uy = (unit_row['Y'] / 1000) * 210
+        pdf.ellipse(ux - 4, uy - 4, 8, 8)
 
-    # 3. صفحة الـ Layout (البحث بالمساحة)
-    unit_area = str(unit_row['Area']).split('.')[0] # أخذ الرقم الصحيح للمساحة
+    # صفحة الـ Layout (البحث بالمساحة داخل فولدر layouts)
+    unit_area = str(unit_row['Area']).split('.')[0] # استخراج الرقم الصحيح للمساحة
     layout_folder = "layouts"
     if os.path.exists(layout_folder):
-        # البحث عن ملف يبدأ بالمساحة
-        files = [f for f in os.listdir(layout_folder) if f.startswith(unit_area)]
-        if files:
+        # البحث عن أول ملف يبدأ بنفس رقم المساحة
+        match_files = [f for f in os.listdir(layout_folder) if f.startswith(unit_area)]
+        if match_files:
             pdf.add_page()
-            pdf.image(os.path.join(layout_folder, files[0]), 10, 10, 277, 190)
+            pdf.image(os.path.join(layout_folder, match_files[0]), 0, 0, 297, 210)
 
-    # 4. صفحة الـ Consultant (آخر صفحة باسم الشخص المختار)
+    # صفحة الكونسلتنت المختار (آخر صفحة)
     consultant_img = f"last_images/{consultant_name}.jpeg"
     if os.path.exists(consultant_img):
         pdf.add_page()
@@ -64,27 +59,64 @@ def create_pdf(unit_row, consultant_name):
 
     return bytes(pdf.output(dest='S'))
 
-# واجهة المستخدم
 try:
     df_all = load_data()
     st.sidebar.title("Sales Portal")
-    # اختيار الـ Consultant
     sel_sales = st.sidebar.selectbox("Property Consultant:", ["Basmala", "Farag", "Gamal", "Jo", "Nady", "os", "Rawda", "Salma"])
     
-    st.subheader("Generate Professional PDF Offer")
-    unit_code = st.selectbox("Select Unit Code:", df_all['Unit Code'].unique())
-    unit_data = df_all[df_all['Unit Code'] == unit_code].iloc[0]
-    
-    if st.button(f"Generate High Quality Offer for {unit_code}"):
-        with st.spinner("Processing Professional Layouts..."):
-            pdf_bytes = create_pdf(unit_data, sel_sales)
-            st.download_button(
-                label="📥 Download Corrected PDF",
-                data=pdf_bytes,
-                file_name=f"Offer_{unit_code}_{sel_sales}.pdf",
-                mime="application/pdf"
-            )
-            st.success("PDF generated with professional cleanup and high-res images.")
+    tab1, tab2 = st.tabs(["📍 Live Master Plan", "📄 Create PDF Offer"])
+
+    with tab1:
+        # عرض الماستر بلان بنظام imshow (الناجح في الإحداثيات)
+        df = df_all[df_all['Status'].str.contains('Available', case=False, na=False)].copy()
+        df['X'] = pd.to_numeric(df['X'], errors='coerce')
+        df['Y'] = pd.to_numeric(df['Y'], errors='coerce')
+        df = df.dropna(subset=['X', 'Y'])
+
+        df_grouped = df.groupby(['X', 'Y']).apply(lambda x: x.to_dict('records')).reset_index(name='units')
+
+        hover_labels = []
+        for _, row in df_grouped.iterrows():
+            label = "<b>Units Available:</b><br>"
+            for unit in row['units']:
+                try:
+                    p_val = float(str(unit.get('Price', 0)).replace(',', ''))
+                    p_str = f"{p_val:,.0f} EGP"
+                except: p_str = "N/A"
+                label += f"• {unit.get('Unit Code')} | {p_str} | {unit.get('Area')}m²<br>"
+            hover_labels.append(label)
+
+        img = Image.open("Master Plan.jpeg") 
+        fig = px.imshow(img)
+        fig.add_scatter(x=df_grouped['X'], y=df_grouped['Y'], mode='markers',
+                        marker=dict(size=18, color='red', symbol='circle', opacity=0.8, line=dict(width=2, color='white')),
+                        hovertext=hover_labels, hoverinfo="text")
+        
+        fig.update_layout(dragmode='pan', width=1200, height=850, margin=dict(l=0, r=0, t=0, b=0), hovermode='closest')
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(visible=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with tab2:
+        st.subheader("Generate High-Quality PDF Offer")
+        # فلترة لرموز الوحدات
+        unit_codes = sorted(df_all['Unit Code'].unique())
+        unit_to_offer = st.selectbox("Select Unit Code:", unit_codes)
+        unit_data = df_all[df_all['Unit Code'] == unit_to_offer].iloc[0]
+        
+        if st.button(f"Create Offer for {unit_to_offer}"):
+            with st.spinner("Compiling layouts and consultant data..."):
+                try:
+                    pdf_bytes = create_pdf(unit_data, sel_sales)
+                    st.download_button(
+                        label="📥 Download PDF", 
+                        data=pdf_bytes, 
+                        file_name=f"Offer_{unit_to_offer}.pdf",
+                        mime="application/pdf"
+                    )
+                    st.success("Everything is ready! Images are high-res and coordinates are fixed.")
+                except Exception as e:
+                    st.error(f"Error during generation: {e}")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"An error occurred: {e}")
