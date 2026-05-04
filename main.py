@@ -17,7 +17,7 @@ def load_data():
     data.columns = data.columns.str.strip()
     return data
 
-# 3. دالة بناء الـ PDF الاحترافية
+# 3. دالة بناء الـ PDF الاحترافية (بأحجام طبيعية)
 def create_pdf(unit_row, consultant_name):
     # إنشاء PDF بالعرض A4
     pdf = FPDF(orientation='L', unit='mm', format='A4')
@@ -27,35 +27,40 @@ def create_pdf(unit_row, consultant_name):
         img_path = f"static_images/{i}.jpeg"
         if os.path.exists(img_path):
             pdf.add_page()
-            pdf.image(img_path, 0, 0, 297, 210)
-    
-    # صفحة الماستر بلان وتعليم الوحدة (بدون إخفاء بياناتك)
+            # استخدام عرض 297mm (كامل الصفحة) مع ترك الارتفاع يتحدد تلقائياً للحفاظ على الأبعاد
+            pdf.image(img_path, x=0, y=0, w=297) 
+
+    # صفحة الماستر بلان (بشكل مستطيل طبيعي)
     if os.path.exists("Master Plan.jpeg"):
         pdf.add_page()
-        pdf.image("Master Plan.jpeg", 0, 0, 297, 210)
-        pdf.set_draw_color(255, 0, 0) # أحمر
-        pdf.set_line_width(1.5)
-        # تحويل الإحداثيات بدقة لمقاس A4 (297x210)
-        # بما أن imshow تستخدم بكسلات الصورة، سنفترض أن الإحداثيات متناسبة مع 1000
+        # وضع الصورة في المنتصف بحجمها الطبيعي المستطيل
+        pdf.image("Master Plan.jpeg", x=0, y=0, w=297)
+        
+        # رسم دائرة الوحدة (باللون الأحمر)
+        pdf.set_draw_color(255, 0, 0)
+        pdf.set_line_width(1)
+        # الإحداثيات مربوطة بالـ imshow (1000x1000)
         ux = (unit_row['X'] / 1000) * 297
         uy = (unit_row['Y'] / 1000) * 210
         pdf.ellipse(ux - 4, uy - 4, 8, 8)
 
-    # صفحة الـ Layout (البحث بالمساحة داخل فولدر layouts)
-    unit_area = str(unit_row['Area']).split('.')[0] # استخراج الرقم الصحيح للمساحة
+    # صفحة الـ Layout (البحث التلقائي بمساحة الوحدة)
+    # نأخذ الرقم الصحيح للمساحة (مثلاً 145 من 145.5)
+    unit_area = str(unit_row['Area']).split('.')[0] 
     layout_folder = "layouts"
     if os.path.exists(layout_folder):
-        # البحث عن أول ملف يبدأ بنفس رقم المساحة
+        # البحث عن ملف يبدأ بالمساحة المطلوبة
         match_files = [f for f in os.listdir(layout_folder) if f.startswith(unit_area)]
         if match_files:
             pdf.add_page()
-            pdf.image(os.path.join(layout_folder, match_files[0]), 0, 0, 297, 210)
+            # إضافة بلان الوحدة بحجم مستطيل متناسق
+            pdf.image(os.path.join(layout_folder, match_files[0]), x=10, y=10, w=277)
 
-    # صفحة الكونسلتنت المختار (آخر صفحة)
+    # صفحة الكونسلتنت المختار
     consultant_img = f"last_images/{consultant_name}.jpeg"
     if os.path.exists(consultant_img):
         pdf.add_page()
-        pdf.image(consultant_img, 0, 0, 297, 210)
+        pdf.image(consultant_img, x=0, y=0, w=297)
 
     return bytes(pdf.output(dest='S'))
 
@@ -67,7 +72,7 @@ try:
     tab1, tab2 = st.tabs(["📍 Live Master Plan", "📄 Create PDF Offer"])
 
     with tab1:
-        # عرض الماستر بلان بنظام imshow (الناجح في الإحداثيات)
+        # نظام الـ imshow لضمان دقة مكان النقطة على الشاشة
         df = df_all[df_all['Status'].str.contains('Available', case=False, na=False)].copy()
         df['X'] = pd.to_numeric(df['X'], errors='coerce')
         df['Y'] = pd.to_numeric(df['Y'], errors='coerce')
@@ -98,14 +103,12 @@ try:
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.subheader("Generate High-Quality PDF Offer")
-        # فلترة لرموز الوحدات
-        unit_codes = sorted(df_all['Unit Code'].unique())
-        unit_to_offer = st.selectbox("Select Unit Code:", unit_codes)
+        st.subheader("Generate Professional Offer")
+        unit_to_offer = st.selectbox("Select Unit Code:", sorted(df_all['Unit Code'].unique()))
         unit_data = df_all[df_all['Unit Code'] == unit_to_offer].iloc[0]
         
         if st.button(f"Create Offer for {unit_to_offer}"):
-            with st.spinner("Compiling layouts and consultant data..."):
+            with st.spinner("Searching for layout and consultant image..."):
                 try:
                     pdf_bytes = create_pdf(unit_data, sel_sales)
                     st.download_button(
@@ -114,9 +117,9 @@ try:
                         file_name=f"Offer_{unit_to_offer}.pdf",
                         mime="application/pdf"
                     )
-                    st.success("Everything is ready! Images are high-res and coordinates are fixed.")
+                    st.success("PDF generated with original image ratios!")
                 except Exception as e:
-                    st.error(f"Error during generation: {e}")
+                    st.error(f"Error: {e}")
 
 except Exception as e:
     st.error(f"An error occurred: {e}")
