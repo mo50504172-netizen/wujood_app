@@ -4,12 +4,11 @@ import plotly.express as px
 from PIL import Image
 import fitz  # PyMuPDF
 import os
-import io
 
-# --- 1. إعدادات الصفحة ---
+# --- 1. إعدادات الصفحة الأساسية ---
 st.set_page_config(layout="wide", page_title="Tharaa Town - Wujood Project")
 
-# رابط البيانات من جوجل شيت
+# رابط البيانات من جوجل شيت (تأكد من أنه متاح للجميع بصيغة CSV)
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1905007491&single=true&output=csv"
 
 @st.cache_data(ttl=5)
@@ -20,7 +19,7 @@ def load_data():
         st.error(f"Error loading CSV: {e}")
         return pd.DataFrame()
 
-# دالة البحث الذكي عن المجلدات (لضمان إيجاد الصور بصرف النظر عن حالة الأحرف)
+# دالة للبحث عن المجلدات والملفات (تجاهل الملفات المخفية)
 def find_folder_and_files(keywords):
     try:
         current_dirs = [d for d in os.listdir(".") if os.path.isdir(d)]
@@ -33,17 +32,19 @@ def find_folder_and_files(keywords):
         pass
     return None, []
 
-# --- 2. الجزء الأونلاين: الماستر بلان (الصفحة الرئيسية) ---
+# --- 2. الواجهة الأمامية: الماستر بلان (Masterplan) ---
 st.title("🎯 Wujood Interactive Masterplan")
 
 df_all = load_data()
 if not df_all.empty:
     try:
+        # فلترة الوحدات المتاحة
         df = df_all[df_all['Status'] == 'Available'].copy()
         df['X'] = pd.to_numeric(df['X'], errors='coerce')
         df['Y'] = pd.to_numeric(df['Y'], errors='coerce')
         df = df.dropna(subset=['X', 'Y'])
 
+        # تجميع الوحدات حسب الإحداثيات
         df_grouped = df.groupby(['X', 'Y']).apply(lambda x: x.to_dict('records')).reset_index(name='units')
 
         hover_labels = []
@@ -57,6 +58,7 @@ if not df_all.empty:
                 label += f"• {unit.get('Unit Code', 'N/A')} | {p_str} | {unit.get('Area', 'N/A')}m²<br>"
             hover_labels.append(label)
 
+        # عرض الخريطة التفاعلية
         if os.path.exists("Master Plan.jpeg"):
             img = Image.open("Master Plan.jpeg") 
             fig = px.imshow(img)
@@ -66,108 +68,114 @@ if not df_all.empty:
             fig.update_layout(dragmode='pan', width=1200, height=850, margin=dict(l=0, r=0, t=40, b=0))
             fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
             st.plotly_chart(fig, use_container_width=True)
-            st.write(f"إجمالي الوحدات المتاحة حالياً: {len(df)}")
+        else:
+            st.warning("ملف 'Master Plan.jpeg' غير موجود في المجلد الرئيسي.")
     except Exception as e:
         st.error(f"Masterplan Error: {e}")
 
-# --- 3. الجزء الأوفلاين: صانع العروض (الشريط الجانبي) ---
+# --- 3. الشريط الجانبي: صانع العروض (Offer Builder) ---
 with st.sidebar:
     st.header("📄 Professional Offer Builder")
     st.divider()
 
+    # مدخلات البيانات
     unit_code = st.text_input("1️⃣ Unit Code (e.g. W-101)").upper()
     price_raw = st.text_input("2️⃣ Original Price (EGP)", value="0")
 
-    # البحث عن المجلدات
+    # تحديد المجلدات
     static_path, static_files = find_folder_and_files(["static"])
     inv_path, inv_files = find_folder_and_files(["inventory"])
     lay_path, lay_files = find_folder_and_files(["layout"])
-    rep_path, rep_files = find_folder_and_files(["last", "image", "rep", "team"])
+    rep_path, rep_files = find_folder_and_files(["last", "images"])
 
+    # القوائم المنسدلة
     selected_inv = st.selectbox("3️⃣ Select Building (Inventory)", inv_files if inv_files else ["No Files Found"])
     selected_lay = st.selectbox("4️⃣ Select Unit Layout", lay_files if lay_files else ["No Files Found"])
-    selected_rep = st.selectbox("5️⃣ Select Representative", rep_files if rep_files else ["No Files Found"])
+
+    # قائمة Team Osama (تحويل أسماء الملفات لأسماء عرض)
+    team_mapping = {}
+    if rep_files:
+        for f in rep_files:
+            display_name = os.path.splitext(f)[0] # يأخذ الاسم بدون الامتداد
+            team_mapping[display_name] = f
+    
+    selected_member = st.selectbox("5️⃣ Team Osama", list(team_mapping.keys()) if team_mapping else ["No Team Found"])
 
     st.divider()
 
     if st.button("🚀 Generate PDF Offer"):
         if not unit_code or price_raw == "0":
-            st.error("❌ يرجى إدخال كود الوحدة والسعر")
-        elif "No Files Found" in [selected_inv, selected_lay, selected_rep]:
-            st.error("❌ تأكد من وجود ملفات داخل المجلدات المرفوعة")
+            st.error("يرجى إدخال البيانات المطلوبة.")
         else:
             try:
-                # --- معالجة الحسابات والخصم ---
-                # تنظيف مدخلات السعر من أي رموز غير رقمية
+                # --- الحسابات المالية ---
                 clean_price_str = "".join(filter(str.isdigit, price_raw))
                 original_price = float(clean_price_str)
                 
-                # تطبيق خصم 10%
-                discount_val = original_price * 0.10
-                p_total = original_price - discount_val
+                # خصم الـ 10%
+                discount_amount = original_price * 0.10
+                final_price = original_price - discount_amount
 
-                # حساب أنظمة السداد بناءً على السعر بعد الخصم
-                p1_dp, p1_bull, p1_inst = p_total*0.10, p_total*0.10, (p_total*0.80)/39
-                p2_dp1, p2_dp2, p2_inst = p_total*0.05, p_total*0.05, (p_total*0.90)/31
-                p3_dp1, p3_dp2, p3_bull, p3_inst = p_total*0.05, p_total*0.05, p_total*0.15, (p_total*0.75)/38
+                # أنظمة السداد (على السعر النهائي)
+                p1_dp, p1_bull, p1_inst = final_price*0.10, final_price*0.10, (final_price*0.80)/39
+                p2_dp1, p2_dp2, p2_inst = final_price*0.05, final_price*0.05, (final_price*0.90)/31
+                p3_dp1, p3_dp2, p3_bull, p3_inst = final_price*0.05, final_price*0.05, final_price*0.15, (final_price*0.75)/38
 
-                # إنشاء الـ PDF
+                # إنشاء مستند PDF
                 doc = fitz.open()
 
-                # الترتيب 1: الصور الثابتة (static_images)
+                # الترتيب 1: الصور الثابتة (Static Images)
                 if static_path:
-                    for s_file in static_files:
-                        full_s = os.path.join(static_path, s_file)
-                        s_pdf = fitz.open(full_s)
-                        if s_file.lower().endswith('.pdf'): doc.insert_pdf(s_pdf)
-                        else: doc.insert_pdf(fitz.open("pdf", s_pdf.convert_to_pdf()))
+                    for s in static_files:
+                        img_path = os.path.join(static_path, s)
+                        temp_doc = fitz.open(img_path)
+                        if s.lower().endswith('.pdf'): doc.insert_pdf(temp_doc)
+                        else: doc.insert_pdf(fitz.open("pdf", temp_doc.convert_to_pdf()))
 
                 # الترتيب 2: صورة المبنى (Inventory)
-                if inv_path:
-                    full_inv = os.path.join(inv_path, selected_inv)
-                    inv_pdf = fitz.open(full_inv)
-                    if selected_inv.lower().endswith('.pdf'): doc.insert_pdf(inv_pdf)
-                    else: doc.insert_pdf(fitz.open("pdf", inv_pdf.convert_to_pdf()))
+                if inv_path and selected_inv != "No Files Found":
+                    img_path = os.path.join(inv_path, selected_inv)
+                    temp_doc = fitz.open(img_path)
+                    if selected_inv.lower().endswith('.pdf'): doc.insert_pdf(temp_doc)
+                    else: doc.insert_pdf(fitz.open("pdf", temp_doc.convert_to_pdf()))
 
-                # الترتيب 3: صفحة تفاصيل السعر والخصم والأقساط
+                # الترتيب 3: صفحة تفاصيل الدفع والخصم
                 page = doc.new_page()
                 page.insert_text((72, 60), "Wujood Project - Payment Plan", fontsize=22, color=(0,0,0))
-                page.insert_text((72, 100), f"Unit Code: {unit_code} | Layout: {os.path.splitext(selected_lay)[0]}", fontsize=14)
-                
-                # عرض تفاصيل السعر بوضوح
-                page.insert_text((72, 140), f"Original Price: {original_price:,.0f} EGP", fontsize=12)
-                page.insert_text((72, 160), f"Special Discount (10%): -{discount_val:,.0f} EGP", fontsize=12, color=(0.8, 0, 0))
-                page.insert_text((72, 190), f"Final Price: {p_total:,.0f} EGP", fontsize=18, color=(0, 0.4, 0))
+                page.insert_text((72, 110), f"Unit: {unit_code} | Original Price: {original_price:,.0f} EGP", fontsize=12)
+                page.insert_text((72, 135), f"Discount (10%): -{discount_amount:,.0f} EGP", fontsize=12, color=(0.8, 0, 0))
+                page.insert_text((72, 165), f"Net Price: {final_price:,.0f} EGP", fontsize=18, color=(0, 0.4, 0))
 
-                y = 240
+                y_pos = 220
                 plans = [
                     ("Option 1 (10% DP):", f"DP: {p1_dp:,.0f} | 3.5Y Bullet: {p1_bull:,.0f} | 39 Quarters: {p1_inst:,.0f}"),
                     ("Option 2 (5% + 5%):", f"DP1: {p2_dp1:,.0f} | DP2: {p2_dp2:,.0f} | 31 Quarters: {p2_inst:,.0f}"),
-                    ("Option 3 (Premium Plan):", f"DP1: {p3_dp1:,.0f} | DP2 (3m): {p3_dp2:,.0f} | Bullet: {p3_bull:,.0f} | 38 Quarters: {p3_inst:,.0f}")
+                    ("Option 3 (Premium):", f"DP1: {p3_dp1:,.0f} | DP2 (3m): {p3_dp2:,.0f} | Bullet: {p3_bull:,.0f} | 38 Quarters: {p3_inst:,.0f}")
                 ]
                 for title, detail in plans:
-                    page.insert_text((72, y), title, fontsize=14, color=(0, 0.2, 0.6))
-                    page.insert_text((80, y+20), detail, fontsize=10)
-                    y += 75
+                    page.insert_text((72, y_pos), title, fontsize=14, color=(0, 0.2, 0.6))
+                    page.insert_text((80, y_pos + 20), detail, fontsize=10)
+                    y_pos += 75
 
                 # الترتيب 4: صورة التقسيمة (Layouts)
-                if lay_path:
-                    full_lay = os.path.join(lay_path, selected_lay)
-                    lay_pdf = fitz.open(full_lay)
-                    if selected_lay.lower().endswith('.pdf'): doc.insert_pdf(lay_pdf)
-                    else: doc.insert_pdf(fitz.open("pdf", lay_pdf.convert_to_pdf()))
+                if lay_path and selected_lay != "No Files Found":
+                    img_path = os.path.join(lay_path, selected_lay)
+                    temp_doc = fitz.open(img_path)
+                    if selected_lay.lower().endswith('.pdf'): doc.insert_pdf(temp_doc)
+                    else: doc.insert_pdf(fitz.open("pdf", temp_doc.convert_to_pdf()))
 
-                # الترتيب 5: صورة المندوب (Last_Images)
-                if rep_path:
-                    full_rep = os.path.join(rep_path, selected_rep)
-                    rep_pdf = fitz.open(full_rep)
-                    if selected_rep.lower().endswith('.pdf'): doc.insert_pdf(rep_pdf)
-                    else: doc.insert_pdf(fitz.open("pdf", rep_pdf.convert_to_pdf()))
+                # الترتيب 5: صورة عضو الفريق (Team Osama)
+                if rep_path and selected_member in team_mapping:
+                    member_file = team_mapping[selected_member]
+                    img_path = os.path.join(rep_path, member_file)
+                    temp_doc = fitz.open(img_path)
+                    if member_file.lower().endswith('.pdf'): doc.insert_pdf(temp_doc)
+                    else: doc.insert_pdf(fitz.open("pdf", temp_doc.convert_to_pdf()))
 
-                # تصدير الملف
+                # حفظ وتنزيل الملف
                 pdf_output = doc.write()
-                st.sidebar.success(f"✅ Created: {unit_code}")
+                st.sidebar.success(f"✅ Offer Ready: {unit_code}")
                 st.sidebar.download_button("📥 Download PDF Offer", pdf_output, f"Offer_{unit_code}.pdf", "application/pdf")
 
             except Exception as e:
-                st.sidebar.error(f"خطأ تقني: {e}")
+                st.sidebar.error(f"حدث خطأ أثناء إنشاء الملف: {e}")
