@@ -3,3 +3,4 @@ pandas
 plotly
 pillow
 FPDF2
+pymupdf
