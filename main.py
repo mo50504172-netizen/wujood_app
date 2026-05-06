@@ -5,11 +5,8 @@ from PIL import Image
 import fitz  # PyMuPDF
 import os
 
-# --- 1. إعدادات الصفحة ---
-st.set_page_config(layout="wide", page_title="Tharaa Town - Wujood Project")
-
-# --- 2. نظام حماية الوصول (Email Whitelist) ---
-# أضف هنا جميع الإيميلات المسموح لها فقط بفتح التطبيق
+# --- 1. نظام الحماية الذكي (Email Whitelist) ---
+# أضف الـ 50 إيميل هنا داخل هذه القائمة
 ALLOWED_EMAILS = [
     "m.osama@tharaatown.com", 
     "basmala@gmail.com",
@@ -17,30 +14,36 @@ ALLOWED_EMAILS = [
     "farag@gmail.com",
     "nady@gmail.com",
     "gamal@gmail.com",
-    "salma@gmail.com"
+    "salma@gmail.com",
+    # يمكنك إضافة باقي الإيميلات هنا بنفس التنسيق
 ]
 
-# التأكد من أن المستخدم قام بتسجيل الدخول وأن إيميله في القائمة
-if not st.user.email:
-    st.warning("⚠️ يرجى تسجيل الدخول باستخدام حساب Google المعتمد للوصول إلى النظام.")
-    st.stop()
+def check_auth():
+    # التحقق من وجود إيميل (يجب أن يكون التطبيق Private في إعدادات Streamlit Cloud)
+    if not st.user.email:
+        st.warning("🔒 يرجى تسجيل الدخول بحساب جوجل المعتمد للوصول إلى النظام.")
+        st.stop()
+    
+    # التحقق من وجود الإيميل في القائمة المسموحة
+    if st.user.email not in ALLOWED_EMAILS:
+        st.error(f"🚫 الوصول مرفوض: الحساب ({st.user.email}) ليس لديه صلاحية.")
+        st.info("راجع المدير المسؤول لإضافة إيميلك للقائمة.")
+        st.stop()
 
-if st.user.email not in ALLOWED_EMAILS:
-    st.error(f"🚫 الوصول مرفوض. الحساب `{st.user.email}` ليس لديه صلاحية.")
-    st.info("يرجى التواصل مع الإدارة لإضافة إيميلك للقائمة.")
-    st.stop()
+# تنفيذ الفحص قبل تحميل أي واجهة أو بيانات
+check_auth()
 
-# --- 3. تحميل البيانات ---
+# --- 2. إعدادات الصفحة ---
+st.set_page_config(layout="wide", page_title="Tharaa Town - Wujood Project")
+
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1905007491&single=true&output=csv"
 
 @st.cache_data(ttl=5)
 def load_data():
-    try: 
-        return pd.read_csv(CSV_URL)
-    except: 
-        return pd.DataFrame()
+    try: return pd.read_csv(CSV_URL)
+    except: return pd.DataFrame()
 
-# --- 4. الماستر بلان التفاعلية ---
+# --- 3. الماستر بلان التفاعلية ---
 st.title("🎯 Wujood Interactive Masterplan")
 df_all = load_data()
 
@@ -51,8 +54,10 @@ if not df_all.empty:
         df['Y'] = pd.to_numeric(df['Y'], errors='coerce')
         df = df.dropna(subset=['X', 'Y'])
         
+        # تجميع الوحدات بنفس الإحداثيات
         df_grouped = df.groupby(['X', 'Y']).apply(lambda x: x.to_dict('records')).reset_index(name='units')
         
+        # تجهيز نص الـ Hover
         hover_texts = []
         for _, row in df_grouped.iterrows():
             label = "<b>Available Units:</b><br>"
@@ -82,16 +87,14 @@ if not df_all.empty:
                 margin=dict(l=0, r=0, t=40, b=0),
                 showlegend=False
             )
-            fig.update_xaxes(visible=False)
-            fig.update_yaxes(visible=False)
+            fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
             st.plotly_chart(fig, use_container_width=True)
-    except Exception as e: 
-        st.error(f"Masterplan Error: {e}")
+    except Exception as e: st.error(f"Masterplan Error: {e}")
 
-# --- 5. صانع العروض (Offer Builder) ---
+# --- 4. صانع العروض (Offer Builder) ---
 with st.sidebar:
     st.header("📄 Professional Offer Builder")
-    st.write(f"Logged in as: `{st.user.email}`") 
+    st.write(f"Logged in as: `{st.user.email}`")
     st.divider()
 
     unit_code = st.text_input("1️⃣ Unit Code").upper()
@@ -121,7 +124,7 @@ with st.sidebar:
 
     if st.button("🚀 Generate PDF Offer"):
         if not unit_code or price_raw == "0":
-            st.error("أدخل كود الوحدة والسعر أولاً")
+            st.error("أدخل كود الوحدة والسعر")
         else:
             try:
                 clean_p = "".join(filter(str.isdigit, price_raw))
@@ -158,8 +161,7 @@ with st.sidebar:
                 ]
                 for title, text in plans:
                     page.insert_text((72, y_pos), title, fontsize=14, color=(0, 0.2, 0.6))
-                    page.insert_text((80, y_pos+20), text, fontsize=10)
-                    y_pos += 75
+                    page.insert_text((80, y_pos+20), text, fontsize=10); y_pos += 75
 
                 if selected_lay != "Folder Not Found":
                     lay_img = fitz.open(os.path.join(layouts_folder, selected_lay))
@@ -172,5 +174,4 @@ with st.sidebar:
                 pdf_bytes = doc.write()
                 st.sidebar.success(f"✅ Offer Ready")
                 st.sidebar.download_button("📥 Download PDF Offer", pdf_bytes, f"Offer_{unit_code}.pdf", "application/pdf")
-            except Exception as e: 
-                st.sidebar.error(f"Error: {e}")
+            except Exception as e: st.sidebar.error(f"Error: {e}")
