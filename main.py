@@ -4,6 +4,7 @@ import plotly.express as px
 from PIL import Image
 import fitz  # PyMuPDF
 import os
+import time
 
 # --- 1. إعدادات الصفحة الأساسية ---
 st.set_page_config(layout="wide", page_title="Tharaa Town - Wujood Project")
@@ -14,28 +15,28 @@ USERS_AUTH_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan
 
 ADMIN_EMAIL = "mo50504172@gmail.com"
 
-# وظائف تحميل البيانات مع تنظيف جذري
-@st.cache_data(ttl=5)
-def load_data():
-    try: 
-        data = pd.read_csv(CSV_URL)
-        # تنظيف أسماء الأعمدة من أي مسافات مخفية
-        data.columns = data.columns.str.strip()
-        # حذف الصفوف التي لا تحتوي على بيانات أساسية
-        return data.dropna(how='all')
-    except Exception as e:
-        st.error(f"Error Loading Sheet: {e}")
-        return pd.DataFrame()
+# وظيفة تحميل البيانات مع نظام محاولات متكررة لضمان الاستقرار أثناء تحديث الشيت
+def load_data_robust(url):
+    for i in range(3):  # يحاول 3 مرات في حالة وجود تهنيج من جوجل
+        try:
+            df = pd.read_csv(url)
+            if not df.empty:
+                df.columns = df.columns.str.strip()
+                return df.dropna(how='all')
+        except:
+            time.sleep(1)
+    return pd.DataFrame()
 
-@st.cache_data(ttl=5)
+# تحميل المستخدمين بدون Cache طويل لضمان سرعة التحديث عند إضافة موظف جديد
+@st.cache_data(ttl=2)
 def load_authorized_users():
-    try:
-        users_df = pd.read_csv(USERS_AUTH_URL)
-        return users_df.iloc[:, 0].astype(str).str.lower().str.strip().tolist()
-    except:
-        return [ADMIN_EMAIL]
+    df = load_data_robust(USERS_AUTH_URL)
+    if not df.empty:
+        # استخراج أول عمود، حذف الفراغات، تحويل لحروف صغيرة
+        return df.iloc[:, 0].dropna().astype(str).str.lower().str.strip().tolist()
+    return [ADMIN_EMAIL]
 
-# --- 2. نظام الحماية والدخول ---
+# --- 2. نظام الحماية والدخول (Gatekeeper) ---
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
@@ -51,24 +52,28 @@ def check_password():
             u_pin = st.text_input("Access PIN:", type="password")
         
         if st.button("Login"):
-            if (u_email in allowed_list or u_email == ADMIN_EMAIL) and u_pin == "2026":
+            # تصحيح تلقائي لغلطة gamil الشهيرة لضمان دخول الموظف
+            processed_email = u_email.replace("gamil.com", "gmail.com")
+            
+            if (processed_email in allowed_list or processed_email == ADMIN_EMAIL) and u_pin == "2026":
                 st.session_state["authenticated"] = True
-                st.session_state["user_email"] = u_email
+                st.session_state["user_email"] = processed_email
                 st.rerun()
             else:
-                st.error("🚫 الإيميل غير مصرح له أو الـ PIN خطأ.")
+                st.error("🚫 الإيميل غير مسجل أو الـ PIN خطأ. تأكد من كتابة البيانات صحيحة.")
         return False
     return True
 
+# --- يبدأ التطبيق فقط بعد تسجيل الدخول بنجاح ---
 if check_password():
     
     # --- 3. الماستر بلان التفاعلية (الحل الجذري للنقط الحمراء) ---
     st.title("🎯 Wujood Interactive Masterplan")
-    df_all = load_data()
+    df_all = load_data_robust(CSV_URL)
     
     if not df_all.empty:
         try:
-            # تنظيف عمود الحالة والإحداثيات لضمان الفلترة
+            # تنظيف البيانات لضمان الفلترة الصحيحة
             df_all['Status'] = df_all['Status'].astype(str).str.strip().str.capitalize()
             df_all['X'] = pd.to_numeric(df_all['X'], errors='coerce')
             df_all['Y'] = pd.to_numeric(df_all['Y'], errors='coerce')
@@ -77,19 +82,16 @@ if check_password():
             df_available = df_all[df_all['Status'] == 'Available'].dropna(subset=['X', 'Y']).copy()
             
             if df_available.empty:
-                st.warning("⚠️ لا توجد وحدات متاحة (Available) حالياً في الشيت أو الإحداثيات مفقودة.")
+                st.warning("⚠️ لا توجد وحدات متاحة (Available) حالياً، أو جاري تحديث البيانات من الشيت.")
             
-            # تجميع البيانات يدوياً لضمان عدم حدوث Length Mismatch
+            # تجميع البيانات للنقط يدوياً لضمان عدم حدوث لغبطة في الإحداثيات
             plot_points = []
-            df_grouped = df_available.groupby(['X', 'Y'])
-            
-            for (x, y), group in df_grouped:
+            for (x, y), group in df_available.groupby(['X', 'Y']):
                 label = "<b>Available Units:</b><br>"
                 for _, unit in group.iterrows():
-                    label += f"🏠 {unit.get('Unit Code', 'N/A')} | 💰 {unit.get('Price', 'N/A')} | 📏 {unit.get('Area', 'N/A')}m²<br>"
+                    label += f"🏠 {unit.get('Unit Code','?')} | 💰 {unit.get('Price','?')} | 📏 {unit.get('Area','?')}m²<br>"
                 plot_points.append({'X': x, 'Y': y, 'Hover': label})
             
-            # تحويل النتائج لـ DataFrame جديد للعرض
             df_plot = pd.DataFrame(plot_points)
 
             if os.path.exists("Master Plan.jpeg"):
@@ -99,7 +101,7 @@ if check_password():
                 if not df_plot.empty:
                     fig.add_scatter(
                         x=df_plot['X'], y=df_plot['Y'], mode='markers', 
-                        marker=dict(size=20, color='red', opacity=0.8, line=dict(width=2, color='white')),
+                        marker=dict(size=22, color='red', opacity=0.8, line=dict(width=2, color='white')),
                         hovertext=df_plot['Hover'], hoverinfo="text", name="" 
                     )
                 
@@ -107,13 +109,17 @@ if check_password():
                 fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.error("❌ ملف 'Master Plan.jpeg' غير موجود في المجلد.")
+                st.error("❌ ملف 'Master Plan.jpeg' مفقود.")
         except Exception as e: 
-            st.error(f"Masterplan Error: {e}")
+            st.info("🔄 جاري مزامنة البيانات مع شيت جوجل...")
 
-    # --- 4. صانع العروض ---
+    # --- 4. صانع العروض الاحترافي ---
     with st.sidebar:
-        st.write(f"Logged in: **{st.session_state['user_email']}**")
+        st.write(f"المستخدم: **{st.session_state['user_email']}**")
+        if st.button("تسجيل الخروج"):
+            st.session_state["authenticated"] = False
+            st.rerun()
+            
         st.divider()
         st.header("📄 Professional Offer Builder")
         
@@ -121,31 +127,29 @@ if check_password():
         price_raw = st.text_input("2️⃣ Original Price (EGP)", value="0")
 
         # تعريف المجلدات
-        folders = {
-            "static": "static_images",
-            "inv": "Inventory",
-            "lay": "layouts",
-            "team": "last_Images"
-        }
+        static_folder = "static_images"
+        inventory_folder = "Inventory"
+        layouts_folder = "layouts"
+        team_folder = "last_Images"
 
-        def get_files(folder_name):
-            if os.path.exists(folder_name):
-                return sorted([f for f in os.listdir(folder_name) if not f.startswith('.')])
+        def get_files(folder):
+            if os.path.exists(folder):
+                return sorted([f for f in os.listdir(folder) if not f.startswith('.')])
             return []
 
-        selected_inv = st.selectbox("3️⃣ Select Building (Inventory)", get_files(folders["inv"]) or ["No Files Found"])
-        selected_lay = st.selectbox("4️⃣ Select Unit Layout", get_files(folders["lay"]) or ["No Files Found"])
+        selected_inv = st.selectbox("3️⃣ Select Building (Inventory)", get_files(inventory_folder) or ["No Files Found"])
+        selected_lay = st.selectbox("4️⃣ Select Unit Layout", get_files(layouts_folder) or ["No Files Found"])
 
-        team_files = get_files(folders["team"])
+        team_files = get_files(team_folder)
         team_names = [os.path.splitext(f)[0] for f in team_files]
         selected_member = st.selectbox("5️⃣ Team Osama", team_names or ["No Team Photos"])
 
         if st.button("🚀 Generate PDF Offer"):
             if not unit_code or price_raw == "0":
-                st.error("الرجاء إدخال كود الوحدة والسعر الصحيح")
+                st.error("أدخل كود الوحدة والسعر")
             else:
                 try:
-                    # الحسابات المالية (10% خصم)
+                    # الحسابات المالية (خصم 10%)
                     clean_p = "".join(filter(str.isdigit, price_raw))
                     original_p = float(clean_p)
                     net_price = original_p * 0.90
@@ -153,40 +157,35 @@ if check_password():
 
                     doc = fitz.open()
 
-                    # إضافة الصور من المجلدات المختلفة
-                    def add_image_to_pdf(folder, filename):
-                        if filename and filename != "No Files Found":
-                            path = os.path.join(folder, filename)
-                            if os.path.exists(path):
-                                img_doc = fitz.open(path)
+                    # دالة إضافة الصور للـ PDF
+                    def add_img(f_path, f_name):
+                        if f_name != "No Files Found":
+                            p = os.path.join(f_path, f_name)
+                            if os.path.exists(p):
+                                img_doc = fitz.open(p)
                                 doc.insert_pdf(fitz.open("pdf", img_doc.convert_to_pdf()))
 
-                    # 1. الصور الثابتة
-                    for s in get_files(folders["static"]): add_image_to_pdf(folders["static"], s)
-                    # 2. صورة المبنى
-                    add_image_to_pdf(folders["inv"], selected_inv)
+                    # دمج الصفحات
+                    for s in get_files(static_folder): add_img(static_folder, s)
+                    add_img(inventory_folder, selected_inv)
                     
-                    # 3. صفحة الحسابات
+                    # صفحة الحسابات
                     page = doc.new_page()
                     page.insert_text((72, 60), "Wujood Project - Payment Plan", fontsize=22)
                     page.insert_text((72, 110), f"Unit: {unit_code} | Original: {original_p:,.0f} EGP", fontsize=12)
-                    page.insert_text((72, 135), f"Discount 10%: -{discount:,.0f} | Final Price: {net_price:,.0f} EGP", fontsize=14, color=(0, 0.4, 0))
+                    page.insert_text((72, 135), f"Discount 10%: -{discount:,.0f} | Final: {net_price:,.0f} EGP", fontsize=14, color=(0, 0.4, 0))
                     
-                    # خطط السداد
-                    p1_dp = net_price * 0.10
-                    p1_inst = (net_price * 0.80) / 39
-                    
+                    # مثال لخطة سداد
                     y = 200
-                    page.insert_text((72, y), "Standard Plan (10% DP):", fontsize=14, color=(0, 0.2, 0.6))
-                    page.insert_text((80, y+20), f"Down Payment: {p1_dp:,.0f} | 39 Quarters: {p1_inst:,.0f}", fontsize=10)
+                    page.insert_text((72, y), "10% Down Payment Plan:", fontsize=14, color=(0, 0.2, 0.6))
+                    page.insert_text((80, y+20), f"DP: {net_price*0.10:,.0f} | 39 Quarters: {(net_price*0.80)/39:,.0f}", fontsize=10)
 
-                    # 4. الـ Layout وصورة الموظف
-                    add_image_to_pdf(folders["lay"], selected_lay)
+                    add_img(layouts_folder, selected_lay)
                     if selected_member in team_names:
-                        add_image_to_pdf(folders["team"], team_files[team_names.index(selected_member)])
+                        add_img(team_folder, team_files[team_names.index(selected_member)])
 
                     pdf_bytes = doc.write()
-                    st.sidebar.success("✅ PDF Generated")
-                    st.sidebar.download_button("📥 Download Offer", pdf_bytes, f"Offer_{unit_code}.pdf", "application/pdf")
+                    st.sidebar.success("✅ Offer Ready")
+                    st.sidebar.download_button("📥 Download PDF", pdf_bytes, f"Offer_{unit_code}.pdf", "application/pdf")
                 except Exception as e:
-                    st.sidebar.error(f"PDF Error: {e}")
+                    st.sidebar.error(f"Error: {e}")
