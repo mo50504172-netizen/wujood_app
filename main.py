@@ -5,133 +5,173 @@ from PIL import Image
 import fitz  # PyMuPDF
 import os
 
-# --- 1. الإعدادات الأساسية للهوية ---
+# --- 1. إعدادات الصفحة الأساسية ---
 st.set_page_config(layout="wide", page_title="Tharaa Town - Wujood Project")
 
-# روابط البيانات (Google Sheets)
-PROJECT_DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1905007491&single=true&output=csv"
+# الروابط الخاصة بك
+CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1905007491&single=true&output=csv"
 USERS_AUTH_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSp_VYSbi9RXan_i9IgmbIz6e3kPaifFMpnHdJBvgZ7O-lnw5GrD2tkd1oNnrQt2gPHh4MF7O6Y7NeC/pub?gid=1771432371&single=true&output=csv"
 
 ADMIN_EMAIL = "mo50504172@gmail.com"
 
-# --- 2. وظائف جلب البيانات (مع التحديث التلقائي) ---
-@st.cache_data(ttl=10) # تحديث كل 10 ثوانٍ
+# وظائف تحميل البيانات
+@st.cache_data(ttl=5)
+def load_data():
+    try: return pd.read_csv(CSV_URL)
+    except: return pd.DataFrame()
+
+@st.cache_data(ttl=5)
 def load_authorized_users():
     try:
         users_df = pd.read_csv(USERS_AUTH_URL)
-        # جلب العمود الأول الذي يحتوي على الإيميلات وتنظيف البيانات
         return users_df.iloc[:, 0].astype(str).str.lower().str.strip().tolist()
-    except Exception as e:
+    except:
         return [ADMIN_EMAIL]
 
-@st.cache_data(ttl=10)
-def load_project_units():
-    try:
-        return pd.read_csv(PROJECT_DATA_URL)
-    except Exception as e:
-        st.error(f"Error loading units: {e}")
-        return pd.DataFrame()
-
-# --- 3. نظام بوابة الدخول (Gatekeeper) ---
-def check_access():
+# --- 2. نظام الحماية والدخول (Gatekeeper) ---
+def check_password():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
 
     if not st.session_state["authenticated"]:
-        st.title("🔐 Tharaa Town - Wujood Sales System")
-        st.info("يرجى تسجيل الدخول للوصول إلى بيانات المشروع وصانع العروض.")
-        
-        allowed_emails = load_authorized_users()
+        st.title("🔐 Tharaa Town - Sales System Login")
+        allowed_list = load_authorized_users()
 
         col1, col2 = st.columns(2)
         with col1:
-            email_input = st.text_input("Enter Email:").lower().strip()
+            u_email = st.text_input("Email:").lower().strip()
         with col2:
-            pin_input = st.text_input("Access PIN:", type="password")
+            u_pin = st.text_input("Access PIN:", type="password")
         
         if st.button("Login"):
-            # التحقق من الإيميل (من الشيت أو إيميل المدير) والـ PIN
-            if (email_input in allowed_emails or email_input == ADMIN_EMAIL) and pin_input == "2026":
+            if (u_email in allowed_list or u_email == ADMIN_EMAIL) and u_pin == "2026":
                 st.session_state["authenticated"] = True
-                st.session_state["user_email"] = email_input
+                st.session_state["user_email"] = u_email
                 st.rerun()
             else:
-                st.error("🚫 عذراً، الإيميل غير مصرح له أو الـ PIN غير صحيح.")
+                st.error("🚫 الإيميل غير مصرح له أو الـ PIN خطأ.")
         return False
     return True
 
-# --- 4. تشغيل البرنامج الرئيسي ---
-if check_access():
+# --- يبدأ التطبيق فقط بعد تسجيل الدخول بنجاح ---
+if check_password():
     
-    # القائمة الجانبية (Sidebar)
-    st.sidebar.image("https://tharaatown.com/wp-content/uploads/2023/10/Tharaa-Town-Logo.png", width=150)
-    st.sidebar.write(f"Logged in: **{st.session_state['user_email']}**")
-    
-    # لوحة المدير
-    if st.session_state['user_email'] == ADMIN_EMAIL:
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🛠️ Admin Tools")
-        st.sidebar.write("إدارة المستخدمين تتم حالياً عبر Google Sheet.")
-
-    # --- القسم الأول: الماستر بلان التفاعلية ---
+    # --- 3. الماستر بلان التفاعلية (نفس كودك تماماً) ---
     st.title("🎯 Wujood Interactive Masterplan")
-    
-    df_raw = load_project_units()
-    if not df_raw.empty:
+    df_all = load_data()
+    if not df_all.empty:
         try:
-            # فلترة الوحدات المتاحة
-            df_available = df_raw[df_raw['Status'] == 'Available'].copy()
-            df_available['X'] = pd.to_numeric(df_available['X'], errors='coerce')
-            df_available['Y'] = pd.to_numeric(df_available['Y'], errors='coerce')
-            df_available = df_available.dropna(subset=['X', 'Y'])
+            df = df_all[df_all['Status'] == 'Available'].copy()
+            df['X'] = pd.to_numeric(df['X'], errors='coerce'); df['Y'] = pd.to_numeric(df['Y'], errors='coerce')
+            df = df.dropna(subset=['X', 'Y'])
             
-            # تجميع الوحدات بنفس الموقع للـ Hover
-            df_grouped = df_available.groupby(['X', 'Y']).apply(lambda x: x.to_dict('records')).reset_index(name='units')
+            df_grouped = df.groupby(['X', 'Y']).apply(lambda x: x.to_dict('records')).reset_index(name='units')
             
-            hover_labels = []
+            hover_texts = []
             for _, row in df_grouped.iterrows():
-                label = "<b>Units Available:</b><br>"
-                for u in row['units']:
-                    label += f"🏠 {u.get('Unit Code')} | 📏 {u.get('Area')}m | 💰 {u.get('Price')} EGP<br>"
-                hover_labels.append(label)
+                label = "<b>Available Units:</b><br>"
+                for unit in row['units']:
+                    price = unit.get('Price', 'N/A')
+                    label += f"🏠 {unit.get('Unit Code', 'N/A')} | 💰 {price} | 📏 {unit.get('Area', 'N/A')}m²<br>"
+                hover_texts.append(label)
 
-            # عرض الصورة والخريطة
             if os.path.exists("Master Plan.jpeg"):
-                img = Image.open("Master Plan.jpeg")
+                img = Image.open("Master Plan.jpeg") 
                 fig = px.imshow(img)
                 fig.add_scatter(
-                    x=df_grouped['X'], y=df_grouped['Y'], mode='markers',
-                    marker=dict(size=20, color='red', opacity=0.8, line=dict(width=2, color='white')),
-                    hovertext=hover_labels, hoverinfo="text"
+                    x=df_grouped['X'], y=df_grouped['Y'], mode='markers', 
+                    marker=dict(size=18, color='red', opacity=0.7),
+                    hovertext=hover_texts, hoverinfo="text", name="" 
                 )
-                fig.update_layout(dragmode='pan', width=1100, height=800, margin=dict(l=0,r=0,t=20,b=0), showlegend=False)
+                fig.update_layout(dragmode='pan', width=1200, height=850, margin=dict(l=0, r=0, t=40, b=0), showlegend=False)
                 fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
                 st.plotly_chart(fig, use_container_width=True)
+        except Exception as e: st.error(f"Masterplan Error: {e}")
+
+    # --- 4. صانع العروض (نفس كودك تماماً بالتقسيمات الحسابية) ---
+    with st.sidebar:
+        st.write(f"Logged in: **{st.session_state['user_email']}**")
+        st.divider()
+        st.header("📄 Professional Offer Builder")
+        
+        unit_code = st.text_input("1️⃣ Unit Code").upper()
+        price_raw = st.text_input("2️⃣ Original Price (EGP)", value="0")
+
+        static_folder = "static_images"
+        inventory_folder = "Inventory"
+        layouts_folder = "layouts"
+        team_folder = "last_Images"
+
+        inv_files = sorted([f for f in os.listdir(inventory_folder) if not f.startswith('.')]) if os.path.exists(inventory_folder) else []
+        lay_files = sorted([f for f in os.listdir(layouts_folder) if not f.startswith('.')]) if os.path.exists(layouts_folder) else []
+        
+        selected_inv = st.selectbox("3️⃣ Select Building (Inventory)", inv_files if inv_files else ["Folder Not Found"])
+        selected_lay = st.selectbox("4️⃣ Select Unit Layout", lay_files if lay_files else ["Folder Not Found"])
+
+        team_mapping = {}
+        if os.path.exists(team_folder):
+            raw_team_files = sorted([f for f in os.listdir(team_folder) if not f.startswith('.')])
+            for f in raw_team_files:
+                display_name = os.path.splitext(f)[0]
+                team_mapping[display_name] = f
+        
+        selected_member = st.selectbox("5️⃣ Team Osama", list(team_mapping.keys()) if team_mapping else ["Check last_Images"])
+
+        if st.button("🚀 Generate PDF Offer"):
+            if not unit_code or price_raw == "0":
+                st.error("أدخل كود الوحدة والسعر")
             else:
-                st.warning("⚠️ ملف Master Plan.jpeg غير موجود في المجلد.")
-        except Exception as e:
-            st.error(f"Error displaying Map: {e}")
+                try:
+                    clean_p = "".join(filter(str.isdigit, price_raw))
+                    original_p = float(clean_p)
+                    discount = original_p * 0.10
+                    net_price = original_p - discount
 
-    # --- القسم الثاني: صانع العروض (Offer Builder) ---
-    st.sidebar.markdown("---")
-    st.sidebar.header("📄 Professional Offer Builder")
-    
-    target_unit = st.sidebar.text_input("1️⃣ Unit Code").upper()
-    raw_price = st.sidebar.text_input("2️⃣ List Price", value="0")
+                    # خطط السداد الخاصة بك
+                    p1 = {"dp": net_price*0.10, "bull": net_price*0.10, "inst": (net_price*0.80)/39}
+                    p2 = {"dp1": net_price*0.05, "dp2": net_price*0.05, "inst": (net_price*0.90)/31}
+                    p3 = {"dp1": net_price*0.05, "dp2": net_price*0.05, "bull": net_price*0.15, "inst": (net_price*0.75)/38}
 
-    if st.sidebar.button("🚀 Generate PDF Offer"):
-        if not target_unit or raw_price == "0":
-            st.sidebar.error("يرجى إدخال الكود والسعر.")
-        else:
-            try:
-                # عمليات الحساب
-                price_val = float("".join(filter(str.isdigit, raw_price)))
-                discount_val = price_val * 0.10
-                final_price = price_val - discount_val
+                    doc = fitz.open()
 
-                # إنشاء الملف (هنا تضع منطق PyMuPDF الخاص بك)
-                st.sidebar.success(f"تم حساب العرض لـ {target_unit}")
-                st.sidebar.write(f"Net Price (10% Off): **{final_price:,.0f} EGP**")
-                # ملاحظة: يمكنك إضافة دالة doc.save() هنا لتحميل الملف
-            except Exception as e:
-                st.sidebar.error(f"Error: {e}")
+                    # دمج الصور الثابتة
+                    if os.path.exists(static_folder):
+                        s_files = sorted([f for f in os.listdir(static_folder) if not f.startswith('.')])
+                        for s in s_files:
+                            img_doc = fitz.open(os.path.join(static_folder, s))
+                            doc.insert_pdf(fitz.open("pdf", img_doc.convert_to_pdf()))
+
+                    # دمج صورة المبنى
+                    if selected_inv != "Folder Not Found":
+                        inv_img = fitz.open(os.path.join(inventory_folder, selected_inv))
+                        doc.insert_pdf(fitz.open("pdf", inv_img.convert_to_pdf()))
+
+                    # صفحة الحسابات
+                    page = doc.new_page()
+                    page.insert_text((72, 60), "Wujood Project - Payment Plan", fontsize=22)
+                    page.insert_text((72, 110), f"Unit: {unit_code} | Original: {original_p:,.0f} EGP", fontsize=12)
+                    page.insert_text((72, 135), f"Discount 10%: -{discount:,.0f} | Final: {net_price:,.0f} EGP", fontsize=14, color=(0, 0.4, 0))
+                    
+                    y_pos = 200
+                    plans = [
+                        ("Option 1 (10% DP):", f"DP: {p1['dp']:,.0f} | Bullet: {p1['bull']:,.0f} | 39 Quarters: {p1['inst']:,.0f}"),
+                        ("Option 2 (5% + 5%):", f"DP1: {p2['dp1']:,.0f} | DP2: {p2['dp2']:,.0f} | 31 Quarters: {p2['inst']:,.0f}"),
+                        ("Option 3 (Premium):", f"DP1: {p3['dp1']:,.0f} | Bullet: {p3['bull']:,.0f} | 38 Quarters: {p3['inst']:,.0f}")
+                    ]
+                    for title, text in plans:
+                        page.insert_text((72, y_pos), title, fontsize=14, color=(0, 0.2, 0.6))
+                        page.insert_text((80, y_pos+20), text, fontsize=10); y_pos += 75
+
+                    # دمج الـ Layout وصورة الموظف
+                    if selected_lay != "Folder Not Found":
+                        lay_img = fitz.open(os.path.join(layouts_folder, selected_lay))
+                        doc.insert_pdf(fitz.open("pdf", lay_img.convert_to_pdf()))
+
+                    if selected_member in team_mapping:
+                        member_img = fitz.open(os.path.join(team_folder, team_mapping[selected_member]))
+                        doc.insert_pdf(fitz.open("pdf", member_img.convert_to_pdf()))
+
+                    pdf_bytes = doc.write()
+                    st.sidebar.success(f"✅ Offer Ready")
+                    st.sidebar.download_button("📥 Download PDF Offer", pdf_bytes, f"Offer_{unit_code}.pdf", "application/pdf")
+                except Exception as e: st.sidebar.error(f"Error: {e}")
