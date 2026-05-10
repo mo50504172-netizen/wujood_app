@@ -133,19 +133,29 @@ if check_password():
                     for s in get_files(static_f): add_pdf_img(static_f, s)
                     add_pdf_img(inv_f, selected_inv)
                     
-                    # --- صفحة حسابات طرق السداد ---
+                    # --- صفحة حسابات طرق السداد (المعدلة) ---
                     page = doc.new_page()
                     page.insert_text((50, 50), f"Unit Code: {unit_code}", fontsize=18, color=(0, 0, 0))
                     page.insert_text((50, 80), f"Original Price: {orig_p:,.0f} EGP", fontsize=12)
                     page.insert_text((50, 100), f"Price After 10% Discount: {net_p:,.0f} EGP", fontsize=14, color=(0, 0.5, 0))
                     page.insert_text((50, 130), "Available Payment Plans:", fontsize=16, color=(0, 0.2, 0.6))
                     
+                    # الحسابات الجديدة بناءً على الطلب
                     plans = [
-                        ("Plan 1: 0% Over 7Y", f"DP: {net_p*0.0345:,.0f} (3.45%) | Installments: {net_p*0.0345:,.0f} x 28 Quarters"),
-                        ("Plan 2: 5% Over 8Y", f"DP: {net_p*0.05:,.0f} | After 3M: {net_p*0.05:,.0f} | Installments: {net_p*0.0290:,.0f} x 31 Quarters"),
-                        ("Plan 3: 10% Over 10Y", f"DP: {net_p*0.10:,.0f} | After 3.5Y: {net_p*0.10:,.0f} | Installments: {net_p*0.02:,.0f} x 39 Quarters"),
-                        ("Plan 4: 5% Over 10Y", f"DP: {net_p*0.05:,.0f} | After 3M: {net_p*0.05:,.0f} | After 3.5Y: {net_p*0.15:,.0f} | Installments: {net_p*0.0192:,.0f} x 38 Quarters"),
-                        ("Plan 5: 10% - 10% - 10%", f"DP: {net_p*0.10:,.0f} | After 6M: {net_p*0.10:,.0f} | After 1Y: {net_p*0.10:,.0f} | After 3.5Y: {net_p*0.10:,.0f} | Installments: {net_p*0.0222:,.0f} x 27 Quarters")
+                        ("Plan 1: 0% Over 7 Years", 
+                         f"DP: 0 EGP | Installments: {net_p/28:,.0f} EGP x 28 Quarters"),
+                        
+                        ("Plan 2: 5% Over 8 Years", 
+                         f"DP (5%): {net_p*0.05:,.0f} | After 3 Months (5%): {net_p*0.05:,.0f} | Installments: {net_p*0.90/31:,.0f} EGP x 31 Quarters"),
+                        
+                        ("Plan 3: 10% Over 10 Years", 
+                         f"DP (10%): {net_p*0.10:,.0f} | After 3.5 Years (10%): {net_p*0.10:,.0f} | Installments: {net_p*0.80/39:,.0f} EGP x 39 Quarters"),
+                        
+                        ("Plan 4: 5% Over 10 Years", 
+                         f"DP (5%): {net_p*0.05:,.0f} | After 3M (5%): {net_p*0.05:,.0f} | After 3.5Y (15%): {net_p*0.15:,.0f} | Installments: {net_p*0.75/38:,.0f} EGP x 38 Quarters"),
+                        
+                        ("Plan 5: 10% - 10% - 10% Over 7 Years", 
+                         f"DP: {net_p*0.10:,.0f} | After 6M: {net_p*0.10:,.0f} | After 1Y: {net_p*0.10:,.0f} | After 3.5Y: {net_p*0.10:,.0f} | Installments: {net_p*0.60/27:,.0f} EGP x 27 Quarters")
                     ]
                     
                     y_start = 160
